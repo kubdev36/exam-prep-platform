@@ -19,7 +19,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { Exam, ExamType, Subject } from '@/types';
-import { ExamApi, MOCK_EXAM_TYPES } from '@/lib/api';
+import { ExamApi } from '@/lib/api';
 
 export default function ExamPortalPage({ params }: { params: Promise<{ code: string }> }) {
   const resolvedParams = use(params);
@@ -47,8 +47,6 @@ export default function ExamPortalPage({ params }: { params: Promise<{ code: str
     loadPortal();
   }, [examCode]);
 
-  const currentMeta = MOCK_EXAM_TYPES.find((e) => e.code === examCode) || MOCK_EXAM_TYPES[0];
-
   // Specific taxonomy layouts per exam type
   const isTHPT = examCode === 'THPT';
   const isHSA = examCode === 'HSA';
@@ -72,24 +70,24 @@ export default function ExamPortalPage({ params }: { params: Promise<{ code: str
             {isTHPT && <GraduationCap className="w-3.5 h-3.5" />}
             {isHSA && <BookOpenCheck className="w-3.5 h-3.5" />}
             {isTSA && <BrainCircuit className="w-3.5 h-3.5" />}
-            <span>{currentMeta.badge || 'Kỳ Thi Trọng Điểm'}</span>
+            <span>{examType?.badge || (isTHPT ? 'Bộ GD&ĐT' : isHSA ? 'ĐHQG Hà Nội' : 'ĐH Bách Khoa')}</span>
           </div>
 
           <h1 className="text-3xl sm:text-4xl font-extrabold text-white mb-3">
-            {currentMeta.name}
+            {examType?.name || `Kỳ Thi ${examCode}`}
           </h1>
           <p className="text-sm text-slate-300 leading-relaxed mb-6">
-            {currentMeta.description}
+            {examType?.description || `Không gian luyện thi và bộ đề thi thử bám sát cấu trúc ${examCode}.`}
           </p>
 
           <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-300">
             <div className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 flex items-center gap-2">
               <Clock className="w-4 h-4 text-blue-400" />
-              <span>Thời gian chuẩn: {currentMeta.default_duration_minutes} phút</span>
+              <span>Thời gian chuẩn: {examType?.default_duration_minutes || (isTHPT ? 90 : isHSA ? 195 : 150)} phút</span>
             </div>
             <div className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 flex items-center gap-2">
               <BarChart className="w-4 h-4 text-emerald-400" />
-              <span>Thang điểm: {currentMeta.max_score} điểm</span>
+              <span>Thang điểm: {examType?.max_score || (isTHPT ? 10 : isHSA ? 150 : 100)} điểm</span>
             </div>
           </div>
         </div>

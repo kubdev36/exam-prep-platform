@@ -19,10 +19,10 @@ import {
   BrainCircuit
 } from 'lucide-react';
 import { DashboardSummary } from '@/types';
-import { ExamApi, MOCK_DASHBOARD } from '@/lib/api';
+import { ExamApi } from '@/lib/api';
 
 export default function DashboardPage() {
-  const [summary, setSummary] = useState<DashboardSummary>(MOCK_DASHBOARD);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -39,6 +39,21 @@ export default function DashboardPage() {
     loadStats();
   }, []);
 
+  if (loading || !summary) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm font-semibold text-slate-300">Đang tải dữ liệu hồ sơ học sinh...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const thptStat = summary.exam_stats?.THPT;
+  const hsaStat = summary.exam_stats?.HSA;
+  const tsaStat = summary.exam_stats?.TSA;
+
   return (
     <div className="min-h-screen max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
       {/* Student Welcome Header */}
@@ -49,10 +64,10 @@ export default function DashboardPage() {
             Hồ Sơ Học Sinh
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white mb-1">
-            Xin chào, {summary.user.name} 👋
+            Xin chào, {summary.user?.name || 'Học Sinh'} 👋
           </h1>
           <p className="text-xs text-slate-400">
-            Theo dõi năng lực thực chiến trên cả 3 kỳ thi THPT, HSA và TSA.
+            Theo dõi năng lực thực chiến trên cả 3 kỳ thi THPT, HSA và TSA trực tiếp từ hệ thống.
           </p>
         </div>
 
@@ -85,7 +100,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-extrabold text-white">Bảng Năng Lực & Khoảng Cách Mục Tiêu</h2>
-            <p className="text-xs text-slate-400">So sánh điểm trung bình hiện tại so với mục tiêu đề ra</p>
+            <p className="text-xs text-slate-400">So sánh điểm trung bình thực tế từ bài thi so với mục tiêu đề ra</p>
           </div>
         </div>
 
@@ -95,23 +110,30 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 font-bold text-sm text-blue-400">
                 <GraduationCap className="w-4 h-4" />
-                <span>THPT Quốc Gia (Toán)</span>
+                <span>THPT Quốc Gia</span>
               </div>
-              <span className="text-xs text-slate-400 font-semibold">Mục tiêu: 9.2+</span>
+              <span className="text-xs text-slate-400 font-semibold">
+                Mục tiêu: {typeof thptStat?.target_score === 'object' ? (thptStat.target_score as any)?.math || 9.0 : thptStat?.target_score || 9.0} đ
+              </span>
             </div>
 
             <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-extrabold text-white">8.25</span>
-              <span className="text-xs text-rose-400 font-bold">(Còn thiếu 0.95 đ)</span>
+              <span className="text-4xl font-extrabold text-white">
+                {thptStat?.current_score !== null && thptStat?.current_score !== undefined ? thptStat.current_score : '--'}
+              </span>
+              <span className="text-xs text-slate-400 font-medium">/ 10.0 đ</span>
             </div>
 
             <div className="space-y-1">
               <div className="flex justify-between text-xs text-slate-400">
-                <span>Tiến độ mục tiêu</span>
-                <span>89.6%</span>
+                <span>Số lượt thi đã hoàn thành</span>
+                <span className="text-white font-bold">{thptStat?.attempts_count || 0} bài</span>
               </div>
               <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                <div className="bg-blue-500 h-full rounded-full" style={{ width: '89.6%' }} />
+                <div 
+                  className="bg-blue-500 h-full rounded-full transition-all" 
+                  style={{ width: `${Math.min(100, ((thptStat?.current_score || 0) / 10) * 100)}%` }} 
+                />
               </div>
             </div>
 
@@ -131,21 +153,28 @@ export default function DashboardPage() {
                 <BookOpenCheck className="w-4 h-4" />
                 <span>ĐGNL HSA ĐHQGHN</span>
               </div>
-              <span className="text-xs text-slate-400 font-semibold">Mục tiêu: 115 đ</span>
+              <span className="text-xs text-slate-400 font-semibold">
+                Mục tiêu: {typeof hsaStat?.target_score === 'number' ? hsaStat.target_score : 115} đ
+              </span>
             </div>
 
             <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-extrabold text-white">102.5</span>
-              <span className="text-xs text-rose-400 font-bold">(Còn thiếu 12.5 đ)</span>
+              <span className="text-4xl font-extrabold text-white">
+                {hsaStat?.current_score !== null && hsaStat?.current_score !== undefined ? hsaStat.current_score : '--'}
+              </span>
+              <span className="text-xs text-slate-400 font-medium">/ 150.0 đ</span>
             </div>
 
             <div className="space-y-1">
               <div className="flex justify-between text-xs text-slate-400">
-                <span>Tiến độ mục tiêu</span>
-                <span>89.1%</span>
+                <span>Số lượt thi đã hoàn thành</span>
+                <span className="text-white font-bold">{hsaStat?.attempts_count || 0} bài</span>
               </div>
               <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                <div className="bg-emerald-500 h-full rounded-full" style={{ width: '89.1%' }} />
+                <div 
+                  className="bg-emerald-500 h-full rounded-full transition-all" 
+                  style={{ width: `${Math.min(100, ((hsaStat?.current_score || 0) / 150) * 100)}%` }} 
+                />
               </div>
             </div>
 
@@ -165,21 +194,28 @@ export default function DashboardPage() {
                 <BrainCircuit className="w-4 h-4" />
                 <span>ĐGTD TSA ĐHBKHN</span>
               </div>
-              <span className="text-xs text-slate-400 font-semibold">Mục tiêu: 78 đ</span>
+              <span className="text-xs text-slate-400 font-semibold">
+                Mục tiêu: {typeof tsaStat?.target_score === 'number' ? tsaStat.target_score : 78} đ
+              </span>
             </div>
 
             <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-extrabold text-white">71.0</span>
-              <span className="text-xs text-rose-400 font-bold">(Còn thiếu 7.0 đ)</span>
+              <span className="text-4xl font-extrabold text-white">
+                {tsaStat?.current_score !== null && tsaStat?.current_score !== undefined ? tsaStat.current_score : '--'}
+              </span>
+              <span className="text-xs text-slate-400 font-medium">/ 100.0 đ</span>
             </div>
 
             <div className="space-y-1">
               <div className="flex justify-between text-xs text-slate-400">
-                <span>Tiến độ mục tiêu</span>
-                <span>91.0%</span>
+                <span>Số lượt thi đã hoàn thành</span>
+                <span className="text-white font-bold">{tsaStat?.attempts_count || 0} bài</span>
               </div>
               <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                <div className="bg-orange-500 h-full rounded-full" style={{ width: '91%' }} />
+                <div 
+                  className="bg-orange-500 h-full rounded-full transition-all" 
+                  style={{ width: `${Math.min(100, ((tsaStat?.current_score || 0) / 100) * 100)}%` }} 
+                />
               </div>
             </div>
 
@@ -203,7 +239,7 @@ export default function DashboardPage() {
             </div>
             <div>
               <h3 className="text-lg font-bold text-white">Chủ Đề Cần Ưu Tiên Cải Thiện</h3>
-              <p className="text-xs text-slate-400">Dựa trên tỷ lệ trả lời sai trong các bài thi thử gần nhất</p>
+              <p className="text-xs text-slate-400">Dựa trên tỷ lệ trả lời sai trong các bài thi thử thực tế</p>
             </div>
           </div>
           <Link
@@ -215,77 +251,98 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {summary.weak_topics.map((item) => (
-            <div
-              key={item.topic_id}
-              className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 flex flex-col justify-between"
-            >
-              <div className="space-y-1 mb-4">
-                <span
-                  className="px-2 py-0.5 rounded text-[10px] font-bold"
-                  style={{ backgroundColor: `${item.subject_color}20`, color: item.subject_color }}
-                >
-                  {item.subject_name}
-                </span>
-                <h4 className="font-bold text-xs text-white line-clamp-2 mt-2">
-                  {item.topic_name}
-                </h4>
-                <div className="text-[11px] text-rose-400 font-semibold">
-                  {item.wrong_count} lần làm sai
-                </div>
-              </div>
-
-              <Link
-                href="/exam-room/1"
-                className="py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-slate-200 text-center transition-colors"
+        {summary.weak_topics && summary.weak_topics.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {summary.weak_topics.map((item) => (
+              <div
+                key={item.topic_id}
+                className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 flex flex-col justify-between"
               >
-                Luyện Lại Dạng Này
-              </Link>
-            </div>
-          ))}
-        </div>
+                <div className="space-y-1 mb-4">
+                  <span
+                    className="px-2 py-0.5 rounded text-[10px] font-bold"
+                    style={{ backgroundColor: `${item.subject_color || '#3b82f6'}20`, color: item.subject_color || '#3b82f6' }}
+                  >
+                    {item.subject_name}
+                  </span>
+                  <h4 className="font-bold text-xs text-white line-clamp-2 mt-2">
+                    {item.topic_name}
+                  </h4>
+                  <div className="text-[11px] text-rose-400 font-semibold">
+                    {item.wrong_count} lần làm sai
+                  </div>
+                </div>
+
+                <Link
+                  href="/exams/thpt"
+                  className="py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-slate-200 text-center transition-colors"
+                >
+                  Luyện Lại Dạng Này
+                </Link>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="p-8 text-center rounded-2xl bg-white/[0.02] border border-white/5">
+            <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+            <p className="text-xs font-semibold text-slate-300">Tuyệt vời! Hiện chưa ghi nhận chủ đề yếu nào.</p>
+            <p className="text-[11px] text-slate-500 mt-1">Hãy tham gia làm đề thi thử để hệ thống tự động nhận diện lỗ hổng kiến thức.</p>
+          </div>
+        )}
       </div>
 
       {/* Recent Exam Attempts Table */}
       <div className="glass-card p-6 sm:p-8 rounded-3xl border border-white/10">
         <h3 className="text-lg font-bold text-white mb-6">Lịch Sử Thi Gần Đây</h3>
 
-        <div className="space-y-3">
-          {summary.recent_attempts.map((att) => (
-            <div
-              key={att.id}
-              className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+        {summary.recent_attempts && summary.recent_attempts.length > 0 ? (
+          <div className="space-y-3">
+            {summary.recent_attempts.map((att) => (
+              <div
+                key={att.id}
+                className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+              >
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-bold text-sm text-white">{att.exam?.title || `Bài thi #${att.exam_id}`}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-slate-400">
+                    <span className="text-emerald-400 font-semibold">Đúng {att.correct_count} câu</span>
+                    <span>•</span>
+                    <span className="text-rose-400 font-semibold">Sai {att.wrong_count} câu</span>
+                    <span>•</span>
+                    <span>{Math.round((att.duration_seconds || 0) / 60)} phút</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4 self-end sm:self-center">
+                  <div className="text-right">
+                    <div className="text-xl font-black text-blue-400">{att.score} đ</div>
+                    <div className="text-[10px] text-slate-400">/ {att.max_score} đ</div>
+                  </div>
+
+                  <Link
+                    href={`/exam-results/${att.id}`}
+                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-bold text-white transition-colors"
+                  >
+                    Xem Lại
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="p-8 text-center rounded-2xl bg-white/[0.02] border border-white/5">
+            <Clock className="w-8 h-8 text-blue-400 mx-auto mb-2" />
+            <p className="text-xs font-semibold text-slate-300">Chưa có lịch sử làm bài thi nào.</p>
+            <Link
+              href="/"
+              className="inline-block mt-3 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white shadow-md shadow-blue-500/20"
             >
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-bold text-sm text-white">{att.exam?.title}</span>
-                </div>
-                <div className="flex items-center gap-3 text-xs text-slate-400">
-                  <span className="text-emerald-400 font-semibold">Đúng {att.correct_count} câu</span>
-                  <span>•</span>
-                  <span className="text-rose-400 font-semibold">Sai {att.wrong_count} câu</span>
-                  <span>•</span>
-                  <span>{Math.round(att.duration_seconds / 60)} phút</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-4 self-end sm:self-center">
-                <div className="text-right">
-                  <div className="text-xl font-black text-blue-400">{att.score} đ</div>
-                  <div className="text-[10px] text-slate-400">/ {att.max_score} đ</div>
-                </div>
-
-                <Link
-                  href={`/exam-results/${att.id}`}
-                  className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-bold text-white transition-colors"
-                >
-                  Xem Lại
-                </Link>
-              </div>
-            </div>
-          ))}
-        </div>
+              Chọn đề thi và bắt đầu ngay
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );

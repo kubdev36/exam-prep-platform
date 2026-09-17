@@ -24,10 +24,10 @@ import {
   Wand2
 } from 'lucide-react';
 import { Exam, ExamType } from '@/types';
-import { ExamApi, MOCK_EXAM_TYPES } from '@/lib/api';
+import { ExamApi } from '@/lib/api';
 
 export default function HomePage() {
-  const [examTypes, setExamTypes] = useState<ExamType[]>(MOCK_EXAM_TYPES);
+  const [examTypes, setExamTypes] = useState<ExamType[]>([]);
   const [featuredExams, setFeaturedExams] = useState<Exam[]>([]);
   const [loading, setLoading] = useState(true);
 

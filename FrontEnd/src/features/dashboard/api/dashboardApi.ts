@@ -1,13 +1,5 @@
-import { apiClient, MOCK_DASHBOARD } from '@/lib/api';
-import { DashboardSummary } from '@/types';
+import { ExamApi } from '@/lib/api';
 
 export const dashboardApi = {
-  getSummary: async (): Promise<DashboardSummary> => {
-    try {
-      const res = await apiClient.get('/dashboard/summary');
-      return res.data;
-    } catch {
-      return MOCK_DASHBOARD;
-    }
-  },
+  getSummary: ExamApi.getDashboardSummary,
 };

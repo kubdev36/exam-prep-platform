@@ -23,28 +23,28 @@ Route::get('/exams/{id}', [ExamController::class, 'show']);
 Route::post('/exams/parse-document', [\App\Http\Controllers\Api\ExamImportController::class, 'parseDocument']);
 Route::post('/exams/save-imported-exam', [\App\Http\Controllers\Api\ExamImportController::class, 'saveImportedExam']);
 
+// Exam Session / Room (supports guest & authenticated)
+Route::post('/exams/{id}/start', [ExamSessionController::class, 'startAttempt']);
+Route::post('/attempts/{attemptId}/save-answer', [ExamSessionController::class, 'saveAnswer']);
+Route::post('/attempts/{attemptId}/submit', [ExamSessionController::class, 'submitAttempt']);
+Route::get('/attempts/{attemptId}/review', [ExamSessionController::class, 'reviewAttempt']);
+
+// Practice & Question Notebook
+Route::post('/practice/quick', [PracticeController::class, 'quickPractice']);
+Route::get('/practice/wrong-questions', [PracticeController::class, 'getWrongQuestions']);
+Route::post('/practice/wrong-questions/{questionId}/toggle-mastered', [PracticeController::class, 'toggleMastered']);
+Route::post('/practice/bookmarks/{questionId}/toggle', [PracticeController::class, 'toggleBookmark']);
+Route::get('/practice/bookmarks', [PracticeController::class, 'getBookmarks']);
+
+// Dashboard
+Route::get('/dashboard/summary', [DashboardController::class, 'getSummary']);
+
 // Protected routes (Sanctum)
 Route::middleware('auth:sanctum')->group(function () {
     // Auth & profile
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::put('/auth/target', [AuthController::class, 'updateTarget']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
-
-    // Exam Session / Room
-    Route::post('/exams/{id}/start', [ExamSessionController::class, 'startAttempt']);
-    Route::post('/attempts/{attemptId}/save-answer', [ExamSessionController::class, 'saveAnswer']);
-    Route::post('/attempts/{attemptId}/submit', [ExamSessionController::class, 'submitAttempt']);
-    Route::get('/attempts/{attemptId}/review', [ExamSessionController::class, 'reviewAttempt']);
-
-    // Practice & Question Notebook
-    Route::post('/practice/quick', [PracticeController::class, 'quickPractice']);
-    Route::get('/practice/wrong-questions', [PracticeController::class, 'getWrongQuestions']);
-    Route::post('/practice/wrong-questions/{questionId}/toggle-mastered', [PracticeController::class, 'toggleMastered']);
-    Route::post('/practice/bookmarks/{questionId}/toggle', [PracticeController::class, 'toggleBookmark']);
-    Route::get('/practice/bookmarks', [PracticeController::class, 'getBookmarks']);
-
-    // Dashboard
-    Route::get('/dashboard/summary', [DashboardController::class, 'getSummary']);
 
     // Media & Cloudinary Upload
     Route::post('/media/upload', [\App\Http\Controllers\Api\MediaController::class, 'upload']);
