@@ -20,7 +20,7 @@ use Illuminate\Support\Str;
 class ImportLoigiaihayMathCommand extends Command
 {
     protected $signature = 'import:loigiaihay-math {--fresh : Delete existing Math exams before importing} {--limit= : Limit number of exams to import}';
-    protected $description = 'Crawl and import high-precision THPT Math exams with Cloudinary illustration diagrams from loigiaihay.com';
+    protected $description = 'Crawl and import high-precision THPT Math exams with Cloudinary illustration diagrams and True/False/Short Answer structure from loigiaihay.com';
 
     public function handle()
     {
@@ -140,7 +140,7 @@ class ImportLoigiaihayMathCommand extends Command
                 foreach ($uniqueBtLinks as $btUrl => $btLabel) {
                     try {
                         $btHtml = (string)$client->get($btUrl)->getBody();
-                        $qData = $this->parseSubQuestion($btHtml, $btLabel, $cloudinary, $client);
+                        $qData = $this->parseSubQuestion($btHtml, $btLabel, $cloudinary);
                         if ($qData && !empty($qData['content'])) {
                             $questions[] = $qData;
                         }
@@ -183,7 +183,7 @@ class ImportLoigiaihayMathCommand extends Command
                     'duration_minutes' => 90,
                     'total_questions' => count($questions),
                     'total_score' => 10.0,
-                    'description' => "Đề thi tốt nghiệp THPT môn Toán có hình vẽ minh họa, công thức LaTeX chuẩn, đáp án và lời giải chi tiết theo ma trận Bộ GD&ĐT.",
+                    'description' => "Đề thi tốt nghiệp THPT môn Toán có hình vẽ minh họa, công thức LaTeX chuẩn, câu hỏi Đúng/Sai và Trả lời ngắn theo ma trận mới Bộ GD&ĐT.",
                     'attempts_count' => rand(150, 680),
                     'average_score' => round(rand(60, 85) / 10, 1),
                     'is_published' => true,
@@ -233,38 +233,32 @@ class ImportLoigiaihayMathCommand extends Command
         }
 
         $this->info("==================================================");
-        $this->info("Import completed: $importedCount Math exams, $totalQuestionsImported questions imported with full LaTeX and Cloudinary diagrams!");
+        $this->info("Import completed: $importedCount Math exams, $totalQuestionsImported questions imported with full LaTeX, Cloudinary diagrams and True/False support!");
 
         return 0;
     }
 
-    protected function parseSubQuestion(string $btHtml, string $btLabel, CloudinaryService $cloudinary, Client $client): ?array
+    protected function parseSubQuestion(string $btHtml, string $btLabel, CloudinaryService $cloudinary): ?array
     {
-        // 1. Extract Question Content
-        $rawQ = '';
-        if (preg_match('/<div[^>]*class=["\'][^"\']*question-content[^"\']*["\'][^>]*>(.*?)<\/div>\s*(?:<ul[^>]*class=["\'][^"\']*dapan|<div[^>]*class=["\'][^"\']*loigiai)/si', $btHtml, $qM)) {
-            $rawQ = $qM[1];
-        } else if (preg_match('/<div[^>]*class=["\'][^"\']*question-content[^"\']*["\'][^>]*>(.*?)<\/div>/si', $btHtml, $qM2)) {
-            $rawQ = $qM2[1];
-        }
-
-        // 2. Extract Solution
+        // 1. Solution
         $rawSol = '';
         if (preg_match('/<div[^>]*class=["\'][^"\']*loigiai[^"\']*["\'][^>]*>(.*?)<div[^>]*class=["\'][^"\']*question-report/si', $btHtml, $solM)) {
             $rawSol = $solM[1];
         }
-
-        $cleanQ = $this->cleanMathHtml($rawQ, $cloudinary);
         $cleanSol = $this->cleanMathHtml($rawSol, $cloudinary);
 
-        // 3. Extract Options if Multiple Choice
-        $options = [];
-        $isMultipleChoice = false;
-
+        // 2. Type 1: Single Choice (4 options A, B, C, D)
         if (preg_match('/<ul[^>]*class=["\'][^"\']*dapan[^"\']*["\'][^>]*>(.*?)<\/ul>/si', $btHtml, $optBlock)) {
             preg_match_all('/<li[^>]*class=["\']([^"\']*)["\'][^>]*>.*?<span[^>]*class=["\']span-answer["\']>([A-D])\.?<\/span>(.*?)<\/li>/si', $optBlock[1], $lis, PREG_SET_ORDER);
-            if (!empty($lis)) {
-                $isMultipleChoice = true;
+            if (count($lis) >= 2) {
+                $rawQ = '';
+                if (preg_match('/<div[^>]*class=["\'][^"\']*question-content[^"\']*["\'][^>]*>(.*?)<\/div>\s*<ul/si', $btHtml, $qM)) {
+                    $rawQ = $qM[1];
+                } else if (preg_match('/<div[^>]*class=["\'][^"\']*question-content[^"\']*["\'][^>]*>(.*?)<\/div>/si', $btHtml, $qM2)) {
+                    $rawQ = $qM2[1];
+                }
+
+                $options = [];
                 foreach ($lis as $li) {
                     $isTrue = str_contains($li[1], 'answer-true') || str_contains($li[0], 'acceptedAnswer');
                     $optText = $this->cleanMathHtml($li[3], $cloudinary);
@@ -275,64 +269,107 @@ class ImportLoigiaihayMathCommand extends Command
                         'order_index' => ord($li[2]) - ord('A') + 1,
                     ];
                 }
-            }
-        }
 
-        // Check if solution specifies answer (fallback if not marked in li)
-        if ($isMultipleChoice) {
-            $hasCorrect = false;
-            foreach ($options as $o) {
-                if ($o['is_correct']) $hasCorrect = true;
-            }
-            if (!$hasCorrect && preg_match('/(?:Đáp án|chọn)\s*:?\s*([A-D])/ui', $cleanSol, $ansM)) {
-                $ansKey = strtoupper($ansM[1]);
-                foreach ($options as &$opt) {
-                    if ($opt['sub_key'] === $ansKey) {
-                        $opt['is_correct'] = true;
+                // Fallback answer detection
+                $hasCorrect = false;
+                foreach ($options as $o) {
+                    if ($o['is_correct']) $hasCorrect = true;
+                }
+                if (!$hasCorrect && preg_match('/(?:Đáp án|chọn)\s*:?\s*([A-D])/ui', $cleanSol, $ansM)) {
+                    $ansKey = strtoupper($ansM[1]);
+                    foreach ($options as &$opt) {
+                        if ($opt['sub_key'] === $ansKey) {
+                            $opt['is_correct'] = true;
+                        }
                     }
                 }
+
+                return [
+                    'question_type' => 'SINGLE_CHOICE',
+                    'difficulty_level' => 2,
+                    'content' => $this->cleanMathHtml($rawQ, $cloudinary),
+                    'explanation' => $cleanSol,
+                    'point_value' => 0.25,
+                    'options' => $options,
+                ];
             }
         }
 
-        // 4. Check for True / False questions (Đúng/Sai - a, b, c, d)
-        if (!$isMultipleChoice && (str_contains($btHtml, 'container-3-5-checkbox') || str_contains($btLabel, 'Đúng/Sai') || str_contains($rawQ, 'fa-square'))) {
-            // Extract items a, b, c, d from question and solution
-            preg_match_all('/([a-d])\)\s*([^<\n]+)/ui', $rawQ, $tfMatches, PREG_SET_ORDER);
-            if (!empty($tfMatches)) {
-                foreach ($tfMatches as $tf) {
-                    $key = strtoupper($tf[1]);
-                    $stmt = trim(strip_tags($tf[2]));
-                    // Check if solution says Đúng or Sai for this item
-                    $isCorrect = false;
-                    if (preg_match('/' . preg_quote($tf[1], '/') . '\)\s*<strong>\s*(Đúng|Sai)/ui', $rawSol, $solTf)) {
-                        $isCorrect = (mb_strtolower($solTf[1]) === 'đúng');
-                    } else if (preg_match('/' . preg_quote($tf[1], '/') . '\).*?fa-square-check.*?Đúng/si', $rawSol)) {
-                        $isCorrect = true;
-                    }
-                    $options[] = [
-                        'sub_key' => $key,
-                        'content' => $stmt . ($isCorrect ? ' (Đúng)' : ' (Sai)'),
-                        'is_correct' => $isCorrect,
-                        'order_index' => ord($key) - ord('A') + 1,
-                    ];
+        // 3. Extract question-content block
+        $rawQBlock = '';
+        if (preg_match('/<div[^>]*class=["\'][^"\']*question-content[^"\']*["\'][^>]*>(.*?)<\/div>\s*(?:<ul|<div[^>]*class=["\'][^"\']*loigiai)/si', $btHtml, $qBox)) {
+            $rawQBlock = $qBox[1];
+        } else if (preg_match('/<div[^>]*class=["\'][^"\']*question-content[^"\']*["\'][^>]*>(.*?)<\/div>/si', $btHtml, $qBox2)) {
+            $rawQBlock = $qBox2[1];
+        }
+
+        // Check if Type 2: True/False (4 sub-items a, b, c, d)
+        if (str_contains($rawQBlock, 'container-3-5-checkbox') || preg_match('/<div[^>]+style="display:\s*flex[^"]*">/i', $rawQBlock)) {
+            $stemHtml = '';
+            if (preg_match('/^(.*?)<div[^>]+style="display:\s*flex/si', $rawQBlock, $stemM)) {
+                $stemHtml = $stemM[1];
+            } else if (preg_match('/<h1[^>]*class=["\'][^"\']*title-question[^"\']*["\'][^>]*>(.*?)<\/h1>/si', $rawQBlock, $h1M)) {
+                $stemHtml = $h1M[1];
+            }
+            $cleanStem = $this->cleanMathHtml($stemHtml, $cloudinary);
+            if (empty(trim($cleanStem))) {
+                $cleanStem = "Xét tính đúng hoặc sai của các mệnh đề sau:";
+            }
+
+            $options = [];
+            preg_match_all('/<div[^>]+style="display:\s*flex[^"]*">(.*?)<\/div>\s*(?=<div[^>]+style="display:\s*flex|<\/div>|$)/si', $rawQBlock, $flexRows, PREG_SET_ORDER);
+            
+            $subKeys = ['a', 'b', 'c', 'd'];
+            foreach ($flexRows as $rIdx => $row) {
+                $rowHtml = $row[1];
+                if (!preg_match('/<div[^>]+style="width:\s*60%[^"]*"[^>]*>(.*?)<\/div>/si', $rowHtml, $stmtM)) {
+                    continue;
                 }
+                $stmtRaw = $stmtM[1];
+                
+                $subKey = $subKeys[$rIdx] ?? 'a';
+                if (preg_match('/^([a-d])\)\s*/i', trim(strip_tags($stmtRaw)), $skM)) {
+                    $subKey = strtolower($skM[1]);
+                    $stmtRaw = preg_replace('/^[a-d]\)\s*/i', '', trim($stmtRaw));
+                }
+
+                $stmtClean = $this->cleanMathHtml($stmtRaw, $cloudinary);
+
+                $isCorrect = false;
+                if (preg_match('/' . preg_quote($subKey, '/') . '\)\s*(?:<strong>\s*)?(Đúng|Sai)/ui', $rawSol, $solTf)) {
+                    $isCorrect = (mb_strtolower($solTf[1]) === 'đúng');
+                } else if (preg_match('/' . preg_quote($subKey, '/') . '\)\s*.*?fa-square-check.*?Đúng/si', $rawSol)) {
+                    $isCorrect = true;
+                }
+
+                $options[] = [
+                    'sub_key' => $subKey,
+                    'content' => $stmtClean,
+                    'is_correct' => $isCorrect,
+                    'order_index' => ord($subKey) - ord('a') + 1,
+                ];
+            }
+
+            if (count($options) >= 2) {
+                return [
+                    'question_type' => 'TRUE_FALSE',
+                    'difficulty_level' => 3,
+                    'content' => $cleanStem,
+                    'explanation' => $cleanSol,
+                    'point_value' => 1.0,
+                    'options' => $options,
+                ];
             }
         }
 
-        $qType = 'SINGLE_CHOICE';
-        if (empty($options)) {
-            $qType = 'SHORT_ANSWER';
-        } else if (count($options) === 4 && isset($options[0]['sub_key']) && $options[0]['sub_key'] === 'A') {
-            $qType = 'SINGLE_CHOICE';
-        }
-
+        // Type 3: Short Answer
         return [
-            'question_type' => $qType,
-            'difficulty_level' => 2,
-            'content' => $cleanQ,
+            'question_type' => 'SHORT_ANSWER',
+            'difficulty_level' => 3,
+            'content' => $this->cleanMathHtml($rawQBlock, $cloudinary),
             'explanation' => $cleanSol,
-            'point_value' => 0.25,
-            'options' => $options,
+            'point_value' => 0.5,
+            'options' => [],
         ];
     }
 
