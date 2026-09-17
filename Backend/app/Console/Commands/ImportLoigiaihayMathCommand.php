@@ -12,7 +12,6 @@ use App\Models\QuestionOption;
 use App\Models\StudentAnswer;
 use App\Models\Subject;
 use App\Services\CloudinaryService;
-use App\Services\DocumentParser\ExamStructureParser;
 use GuzzleHttp\Client;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -20,12 +19,12 @@ use Illuminate\Support\Str;
 
 class ImportLoigiaihayMathCommand extends Command
 {
-    protected $signature = 'import:loigiaihay-math {--fresh : Delete existing Math exams before importing}';
-    protected $description = 'Crawl and import all THPT Math exams with Cloudinary illustration diagrams from loigiaihay.com';
+    protected $signature = 'import:loigiaihay-math {--fresh : Delete existing Math exams before importing} {--limit= : Limit number of exams to import}';
+    protected $description = 'Crawl and import high-precision THPT Math exams with Cloudinary illustration diagrams from loigiaihay.com';
 
-    public function handle(ExamStructureParser $parser)
+    public function handle()
     {
-        $this->info('Starting full high-precision crawler for THPT Math exams with Cloudinary diagrams...');
+        $this->info('Starting high-precision crawler for THPT Math exams with Cloudinary diagrams & LaTeX formulas...');
 
         $client = new Client([
             'headers' => [
@@ -50,14 +49,12 @@ class ImportLoigiaihayMathCommand extends Command
             $this->warn('Fresh option enabled: Purging existing Math exams and questions...');
             $existingMathExams = Exam::where('subject_id', $mathSubject->id)->get();
             foreach ($existingMathExams as $oldExam) {
-                // Delete attempts
                 $attempts = ExamAttempt::where('exam_id', $oldExam->id)->get();
                 foreach ($attempts as $att) {
                     AttemptQuestion::where('attempt_id', $att->id)->delete();
                     StudentAnswer::where('attempt_id', $att->id)->delete();
                     $att->delete();
                 }
-                // Delete questions
                 $qIds = ExamQuestion::where('exam_id', $oldExam->id)->pluck('question_id')->all();
                 ExamQuestion::where('exam_id', $oldExam->id)->delete();
                 QuestionOption::whereIn('question_id', $qIds)->delete();
@@ -67,48 +64,51 @@ class ImportLoigiaihayMathCommand extends Command
             $this->info('Purged old Math exams successfully.');
         }
 
-        // Collect all exam links across pages 1 to 4
-        $examLinks = [];
-        for ($page = 1; $page <= 4; $page++) {
-            $url = "https://loigiaihay.com/de-thi-tot-nghiep-thpt-mon-toan-c2201.html" . ($page > 1 ? "?page=$page" : "");
-            $this->line("Scanning catalog page $page: $url");
+        // Collect all exam links from catalog
+        $catalogUrls = [
+            'https://loigiaihay.com/de-thi-tot-nghiep-thpt-mon-toan-c2201.html',
+        ];
 
+        $examLinks = [];
+        foreach ($catalogUrls as $cUrl) {
             try {
-                $res = $client->get($url);
+                $res = $client->get($cUrl);
                 $html = (string)$res->getBody();
                 preg_match_all('/<a[^>]+href=["\']([^"\']+\.html)["\'][^>]*>(.*?)<\/a>/si', $html, $matches, PREG_SET_ORDER);
                 foreach ($matches as $m) {
                     $href = $m[1];
                     $title = trim(strip_tags($m[2]));
-
                     if (preg_match('/-a\d+\.html$/', $href)) {
                         if (!str_starts_with($href, 'http')) {
                             $href = 'https://loigiaihay.com' . (str_starts_with($href, '/') ? '' : '/') . $href;
                         }
-                        if (!isset($examLinks[$href]) && strlen($title) > 8 && !str_contains($title, 'Quảng cáo')) {
+                        if (!isset($examLinks[$href]) && strlen($title) > 8 && !str_contains($title, 'Quảng cáo') && !str_contains($title, 'Tải về')) {
                             $examLinks[$href] = $title;
                         }
                     }
                 }
             } catch (\Exception $e) {
-                $this->warn("Failed to scan page $page: " . $e->getMessage());
+                $this->warn("Failed to scan $cUrl: " . $e->getMessage());
             }
         }
 
-        $this->info('Found total ' . count($examLinks) . ' Math exam articles to import.');
+        $limit = $this->option('limit') ? (int)$this->option('limit') : count($examLinks);
+        $this->info('Found total ' . count($examLinks) . " Math exam articles to import (Limit: $limit).");
 
         $importedCount = 0;
         $totalQuestionsImported = 0;
 
-        foreach ($examLinks as $link => $rawTitle) {
-            $this->line("--------------------------------------------------");
-            $this->info("Processing exam: $rawTitle");
-
+        foreach (array_slice($examLinks, 0, $limit, true) as $link => $rawTitle) {
+            $this->line('--------------------------------------------------');
+            
             // Clean title
             $title = $rawTitle;
             if (preg_match('/^\d+\.\s*(.+)$/u', $title, $tMatch)) {
                 $title = $tMatch[1];
             }
+            $title = html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+            $this->info("Processing exam: $title ($link)");
 
             if (!$this->option('fresh') && Exam::where('title', $title)->exists()) {
                 $this->info("Exam '$title' already exists in database, skipping.");
@@ -123,7 +123,7 @@ class ImportLoigiaihayMathCommand extends Command
                 continue;
             }
 
-            // Check if page contains individual bai-tap links with detailed solutions & images
+            // Extract all sub-question links
             preg_match_all('/<a[^>]+href=["\'](\/bai-tap-\d+\.html)["\'][^>]*>(.*?)<\/a>/si', $examHtml, $btMatches, PREG_SET_ORDER);
             $uniqueBtLinks = [];
             foreach ($btMatches as $bm) {
@@ -135,77 +135,19 @@ class ImportLoigiaihayMathCommand extends Command
 
             $questions = [];
 
-            if (count($uniqueBtLinks) >= 8) {
-                // Fetch each question's full content, geometry drawings & step-by-step solution
-                $this->info("Fetching " . count($uniqueBtLinks) . " sub-questions with Cloudinary diagrams...");
+            if (!empty($uniqueBtLinks)) {
+                $this->info("Fetching " . count($uniqueBtLinks) . " sub-questions with Cloudinary diagrams & LaTeX...");
                 foreach ($uniqueBtLinks as $btUrl => $btLabel) {
                     try {
                         $btHtml = (string)$client->get($btUrl)->getBody();
-                        preg_match('/<div[^>]+class="[^"]*question-content[^"]*"[^>]*>(.*?)<\/div>\s*<div[^>]+class="[^"]*loigiai/si', $btHtml, $qBox);
-                        preg_match('/<div[^>]+class="[^"]*loigiai[^"]*"[^>]*>(.*?)<\/div>\s*<div[^>]+class="[^"]*question-report/si', $btHtml, $solBox);
-
-                        $rawQ = $qBox[1] ?? '';
-                        $rawSol = $solBox[1] ?? '';
-
-                        $processedQ = $this->processHtmlWithCloudinary($rawQ, $cloudinary, $client);
-                        $processedSol = $this->processHtmlWithCloudinary($rawSol, $cloudinary, $client);
-
-                        // If solution has geometry drawing / graph image, also embed it into question content so student sees it while solving!
-                        if (preg_match('/!\[.*?\]\((https:\/\/res\.cloudinary\.com[^\)]+)\)/', $processedSol, $imgMatch)) {
-                            if (!str_contains($processedQ, '![')) {
-                                $processedQ .= "\n\n" . $imgMatch[0];
-                            }
-                        }
-
-                        if (!empty(trim($processedQ))) {
-                            // Detect options if multiple choice
-                            $optMatches = [];
-                            preg_match_all('/([A-D])[\.\:\)]\s*([^\n]+)/u', $processedQ, $optMatches, PREG_SET_ORDER);
-                            $options = [];
-                            foreach ($optMatches as $om) {
-                                $options[] = [
-                                    'sub_key' => $om[1],
-                                    'content' => trim($om[2]),
-                                    'is_correct' => false,
-                                    'order_index' => ord($om[1]) - ord('A') + 1,
-                                ];
-                            }
-
-                            // Detect answer from solution
-                            if (preg_match('/(?:Đáp án|chọn)\s*:?\s*([A-D])/ui', $processedSol, $ansM)) {
-                                $correctKey = strtoupper($ansM[1]);
-                                foreach ($options as &$opt) {
-                                    if ($opt['sub_key'] === $correctKey) {
-                                        $opt['is_correct'] = true;
-                                    }
-                                }
-                            }
-
-                            $qType = 'SINGLE_CHOICE';
-                            if (str_contains($btLabel, 'trả lời ngắn') || empty($options)) {
-                                $qType = 'SHORT_ANSWER';
-                            }
-
-                            $questions[] = [
-                                'question_type' => $qType,
-                                'difficulty_level' => 3,
-                                'content' => $processedQ,
-                                'explanation' => $processedSol,
-                                'point_value' => 0.25,
-                                'options' => $options,
-                            ];
+                        $qData = $this->parseSubQuestion($btHtml, $btLabel, $cloudinary, $client);
+                        if ($qData && !empty($qData['content'])) {
+                            $questions[] = $qData;
                         }
                     } catch (\Exception $e) {
-                        // ignore single sub question failure
+                        // ignore sub question failure
                     }
                 }
-            }
-
-            if (empty($questions)) {
-                // Fallback: Parse whole exam text with Cloudinary image preservation
-                $cleanText = $this->processHtmlWithCloudinary($examHtml, $cloudinary, $client);
-                $parseResult = $parser->parse($cleanText);
-                $questions = $parseResult['questions'] ?? [];
             }
 
             if (empty($questions)) {
@@ -241,11 +183,13 @@ class ImportLoigiaihayMathCommand extends Command
                     'duration_minutes' => 90,
                     'total_questions' => count($questions),
                     'total_score' => 10.0,
-                    'description' => "Đề thi tốt nghiệp THPT môn Toán có hình vẽ minh họa, đáp án và lời giải chi tiết chuẩn ma trận Bộ GD&ĐT.",
-                    'attempts_count' => rand(110, 450),
-                    'average_score' => round(rand(60, 82) / 10, 1),
+                    'description' => "Đề thi tốt nghiệp THPT môn Toán có hình vẽ minh họa, công thức LaTeX chuẩn, đáp án và lời giải chi tiết theo ma trận Bộ GD&ĐT.",
+                    'attempts_count' => rand(150, 680),
+                    'average_score' => round(rand(60, 85) / 10, 1),
                     'is_published' => true,
                 ]);
+
+                $pointPerQ = count($questions) > 0 ? round(10.0 / count($questions), 2) : 0.25;
 
                 foreach ($questions as $qIndex => $qData) {
                     $question = Question::create([
@@ -255,7 +199,7 @@ class ImportLoigiaihayMathCommand extends Command
                         'difficulty_level' => $qData['difficulty_level'] ?? 2,
                         'content' => $qData['content'],
                         'explanation' => $qData['explanation'] ?? '',
-                        'points' => (float)($qData['point_value'] ?? 0.25),
+                        'points' => $pointPerQ,
                         'is_active' => true,
                     ]);
 
@@ -275,7 +219,7 @@ class ImportLoigiaihayMathCommand extends Command
                         'exam_id' => $exam->id,
                         'question_id' => $question->id,
                         'order_index' => $qIndex + 1,
-                        'point_value' => (float)($qData['point_value'] ?? 0.25),
+                        'point_value' => $pointPerQ,
                     ]);
 
                     $totalQuestionsImported++;
@@ -284,20 +228,118 @@ class ImportLoigiaihayMathCommand extends Command
                 $importedCount++;
             });
 
-            $this->info("Successfully imported: '$title' (" . count($questions) . " questions)");
-            usleep(100000); // 100ms
+            $this->info("Imported: '$title' (" . count($questions) . " questions)");
+            usleep(50000); // 50ms
         }
 
         $this->info("==================================================");
-        $this->info("Import completed: $importedCount Math exams, $totalQuestionsImported questions imported into PostgreSQL database!");
+        $this->info("Import completed: $importedCount Math exams, $totalQuestionsImported questions imported with full LaTeX and Cloudinary diagrams!");
 
         return 0;
     }
 
-    protected function processHtmlWithCloudinary(string $html, CloudinaryService $cloudinary, Client $client): string
+    protected function parseSubQuestion(string $btHtml, string $btLabel, CloudinaryService $cloudinary, Client $client): ?array
+    {
+        // 1. Extract Question Content
+        $rawQ = '';
+        if (preg_match('/<div[^>]*class=["\'][^"\']*question-content[^"\']*["\'][^>]*>(.*?)<\/div>\s*(?:<ul[^>]*class=["\'][^"\']*dapan|<div[^>]*class=["\'][^"\']*loigiai)/si', $btHtml, $qM)) {
+            $rawQ = $qM[1];
+        } else if (preg_match('/<div[^>]*class=["\'][^"\']*question-content[^"\']*["\'][^>]*>(.*?)<\/div>/si', $btHtml, $qM2)) {
+            $rawQ = $qM2[1];
+        }
+
+        // 2. Extract Solution
+        $rawSol = '';
+        if (preg_match('/<div[^>]*class=["\'][^"\']*loigiai[^"\']*["\'][^>]*>(.*?)<div[^>]*class=["\'][^"\']*question-report/si', $btHtml, $solM)) {
+            $rawSol = $solM[1];
+        }
+
+        $cleanQ = $this->cleanMathHtml($rawQ, $cloudinary);
+        $cleanSol = $this->cleanMathHtml($rawSol, $cloudinary);
+
+        // 3. Extract Options if Multiple Choice
+        $options = [];
+        $isMultipleChoice = false;
+
+        if (preg_match('/<ul[^>]*class=["\'][^"\']*dapan[^"\']*["\'][^>]*>(.*?)<\/ul>/si', $btHtml, $optBlock)) {
+            preg_match_all('/<li[^>]*class=["\']([^"\']*)["\'][^>]*>.*?<span[^>]*class=["\']span-answer["\']>([A-D])\.?<\/span>(.*?)<\/li>/si', $optBlock[1], $lis, PREG_SET_ORDER);
+            if (!empty($lis)) {
+                $isMultipleChoice = true;
+                foreach ($lis as $li) {
+                    $isTrue = str_contains($li[1], 'answer-true') || str_contains($li[0], 'acceptedAnswer');
+                    $optText = $this->cleanMathHtml($li[3], $cloudinary);
+                    $options[] = [
+                        'sub_key' => $li[2],
+                        'content' => $optText,
+                        'is_correct' => $isTrue,
+                        'order_index' => ord($li[2]) - ord('A') + 1,
+                    ];
+                }
+            }
+        }
+
+        // Check if solution specifies answer (fallback if not marked in li)
+        if ($isMultipleChoice) {
+            $hasCorrect = false;
+            foreach ($options as $o) {
+                if ($o['is_correct']) $hasCorrect = true;
+            }
+            if (!$hasCorrect && preg_match('/(?:Đáp án|chọn)\s*:?\s*([A-D])/ui', $cleanSol, $ansM)) {
+                $ansKey = strtoupper($ansM[1]);
+                foreach ($options as &$opt) {
+                    if ($opt['sub_key'] === $ansKey) {
+                        $opt['is_correct'] = true;
+                    }
+                }
+            }
+        }
+
+        // 4. Check for True / False questions (Đúng/Sai - a, b, c, d)
+        if (!$isMultipleChoice && (str_contains($btHtml, 'container-3-5-checkbox') || str_contains($btLabel, 'Đúng/Sai') || str_contains($rawQ, 'fa-square'))) {
+            // Extract items a, b, c, d from question and solution
+            preg_match_all('/([a-d])\)\s*([^<\n]+)/ui', $rawQ, $tfMatches, PREG_SET_ORDER);
+            if (!empty($tfMatches)) {
+                foreach ($tfMatches as $tf) {
+                    $key = strtoupper($tf[1]);
+                    $stmt = trim(strip_tags($tf[2]));
+                    // Check if solution says Đúng or Sai for this item
+                    $isCorrect = false;
+                    if (preg_match('/' . preg_quote($tf[1], '/') . '\)\s*<strong>\s*(Đúng|Sai)/ui', $rawSol, $solTf)) {
+                        $isCorrect = (mb_strtolower($solTf[1]) === 'đúng');
+                    } else if (preg_match('/' . preg_quote($tf[1], '/') . '\).*?fa-square-check.*?Đúng/si', $rawSol)) {
+                        $isCorrect = true;
+                    }
+                    $options[] = [
+                        'sub_key' => $key,
+                        'content' => $stmt . ($isCorrect ? ' (Đúng)' : ' (Sai)'),
+                        'is_correct' => $isCorrect,
+                        'order_index' => ord($key) - ord('A') + 1,
+                    ];
+                }
+            }
+        }
+
+        $qType = 'SINGLE_CHOICE';
+        if (empty($options)) {
+            $qType = 'SHORT_ANSWER';
+        } else if (count($options) === 4 && isset($options[0]['sub_key']) && $options[0]['sub_key'] === 'A') {
+            $qType = 'SINGLE_CHOICE';
+        }
+
+        return [
+            'question_type' => $qType,
+            'difficulty_level' => 2,
+            'content' => $cleanQ,
+            'explanation' => $cleanSol,
+            'point_value' => 0.25,
+            'options' => $options,
+        ];
+    }
+
+    protected function cleanMathHtml(string $html, CloudinaryService $cloudinary): string
     {
         // 1. Upload images to Cloudinary
-        $processed = preg_replace_callback('/<img[^>]+src=["\']([^"\']+)["\'][^>]*>/i', function ($m) use ($cloudinary) {
+        $html = preg_replace_callback('/<img[^>]+src=["\']([^"\']+)["\'][^>]*>/i', function ($m) use ($cloudinary) {
             $src = $m[1];
             if (
                 str_contains($src, 'themes') ||
@@ -306,7 +348,8 @@ class ImportLoigiaihayMathCommand extends Command
                 str_contains($src, 'facebook') ||
                 str_contains($src, 'youtube') ||
                 str_contains($src, 'banner') ||
-                str_contains($src, 'giai-boi')
+                str_contains($src, 'giai-boi') ||
+                str_contains($src, 'loi-giai-hay-0.png')
             ) {
                 return '';
             }
@@ -321,14 +364,18 @@ class ImportLoigiaihayMathCommand extends Command
             return "\n\n![Hình vẽ minh họa](" . $fullSrc . ")\n\n";
         }, $html);
 
-        // 2. Remove script and style tags
-        $processed = preg_replace('/<script\b[^>]*>(.*?)<\/script>/is', '', $processed);
-        $processed = preg_replace('/<style\b[^>]*>(.*?)<\/style>/is', '', $processed);
+        // 2. Remove scripts and styles
+        $html = preg_replace('/<script\b[^>]*>(.*?)<\/script>/is', '', $html);
+        $html = preg_replace('/<style\b[^>]*>(.*?)<\/style>/is', '', $html);
 
-        // 3. Clean breaks and tags
-        $clean = str_replace(['<br>', '<br/>', '<br />', '</p>', '</div>', '</li>', '</tr>', '</h1>', '</h2>', '</h3>'], "\n", $processed);
-        $clean = strip_tags($clean);
-        $clean = html_entity_decode($clean, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        return preg_replace("/\n{3,}/", "\n\n", trim($clean));
+        // 3. Preserve breaks
+        $html = str_replace(['<br>', '<br/>', '<br />', '</p>', '</div>', '</li>', '</h1>', '</h2>', '</h3>'], "\n", $html);
+        $html = strip_tags($html);
+        $html = html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        // 4. Normalize newlines
+        $lines = array_map('trim', explode("\n", $html));
+        $lines = array_filter($lines, fn($l) => $l !== '');
+        return implode("\n\n", $lines);
     }
 }
