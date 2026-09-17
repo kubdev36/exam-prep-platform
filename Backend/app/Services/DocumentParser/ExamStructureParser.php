@@ -75,12 +75,12 @@ class ExamStructureParser
 
     protected function splitIntoQuestionBlocks(string $text): array
     {
-        // Split on pattern: newline followed by "Câu 1:", "Câu 1.", "Bài 1:", "Question 1:"
-        $pattern = '/(?=\n\s*(?:Câu|Bài|Question)\s+\d+[\s.:-]+)/ui';
+        // Split on pattern: newline followed by "Câu 1:", "Question 1:", "Bài 1:", or "1. ", "2. "
+        $pattern = '/(?=\n\s*(?:(?:Câu|Bài|Question)\s+\d+|\d{1,3}[\.\:\)])[\s.:-]+)/ui';
         $blocks = preg_split($pattern, "\n" . $text);
 
         return array_filter(array_map('trim', $blocks), function ($b) {
-            return preg_match('/^(?:Câu|Bài|Question)\s+\d+/ui', $b);
+            return preg_match('/^(?:(?:Câu|Bài|Question)\s+\d+|\d{1,3}[\.\:\)])/ui', $b);
         });
     }
 
@@ -93,13 +93,8 @@ class ExamStructureParser
             $block = substr($block, 0, -strlen($expMatch[0]));
         }
 
-        // 2. Remove question header (e.g. "Câu 1: ")
-        $cleanedBlock = preg_replace('/^(?:Câu|Bài|Question)\s+\d+[-.:)\s]+\s*/ui', '', $block);
-
-        // Check if question has True/False 4 sub-items (a), b), c), d) or a. b. c. d.) - Case-sensitive lowercase
-        if (preg_match_all('/(?:\n|\s|^)([a-d])[\)\.][\s\t]+([^\n\r]+)/u', $cleanedBlock, $tfMatches, PREG_SET_ORDER) && count($tfMatches) >= 3) {
-            return $this->parseTrueFalseQuestion($cleanedBlock, $tfMatches, $orderIndex, $explanation);
-        }
+        // 2. Remove question header (e.g. "Câu 1: ", "Question 1.", "1. ")
+        $cleanedBlock = preg_replace('/^(?:(?:Câu|Bài|Question)\s+\d+|\d{1,3})[-.:)\s]+\s*/ui', '', $block);
 
         // Check if question has Multiple Choice options A., B., C., D.
         // Match options even if on the same line: "A. xxx   B. yyy   C. zzz   D. ttt"
@@ -141,11 +136,16 @@ class ExamStructureParser
                 'order_index' => $orderIndex,
                 'question_type' => 'SINGLE_CHOICE',
                 'difficulty_level' => 2,
-                'content' => $questionContent ?: 'Câu hỏi số ' . $orderIndex,
+                'content' => $questionContent ?: "Câu hỏi số $orderIndex",
                 'options' => $options,
                 'explanation' => $explanation,
-                'point_value' => 1.0,
+                'point_value' => 0.25,
             ];
+        }
+
+        // Check if question has True/False 4 sub-items (a), b), c), d) or a. b. c. d.) - Case-sensitive lowercase
+        if (preg_match_all('/(?:\n|\s|^)([a-d])[\)\.][\s\t]+([^\n\r]+)/u', $cleanedBlock, $tfMatches, PREG_SET_ORDER) && count($tfMatches) >= 3) {
+            return $this->parseTrueFalseQuestion($cleanedBlock, $tfMatches, $orderIndex, $explanation);
         }
 
         // Otherwise: SHORT_ANSWER or open-ended question

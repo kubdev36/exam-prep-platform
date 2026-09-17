@@ -220,6 +220,35 @@ export default function ExamPortalPage({ params }: { params: Promise<{ code: str
                     Luyện Đề Môn Hóa
                   </Link>
                 </div>
+
+                {/* Môn Tiếng Anh (Mới bổ sung 16 Đề thi từ Loigiaihay) */}
+                <div className="glass-card glass-card-hover p-6 rounded-2xl border border-emerald-500/30">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-xl font-bold text-white">Tiếng Anh</span>
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400">
+                      16 Đề Thi Mới
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mb-6">
+                    Đề thi tốt nghiệp THPT 2026, 2025 & Đề tham khảo chuẩn Bộ GD&ĐT có đáp án và giải chi tiết.
+                  </p>
+                  <div className="space-y-2 text-xs text-slate-300 mb-6">
+                    <div className="flex justify-between">
+                      <span>Đọc hiểu, sắp xếp câu & ngữ pháp</span>
+                      <span className="text-emerald-400 font-bold">16 đề chuẩn hóa</span>
+                    </div>
+                    <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                      <div className="bg-emerald-500 h-full rounded-full" style={{ width: '92%' }} />
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('MOCKS')}
+                    className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white flex items-center justify-center gap-2 transition-all"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-white" />
+                    Xem 16 Đề Tiếng Anh
+                  </button>
+                </div>
               </>
             )}
 
