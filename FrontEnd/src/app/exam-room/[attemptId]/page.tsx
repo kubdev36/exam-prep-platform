@@ -43,22 +43,27 @@ export default function ExamRoomPage({ params }: { params: Promise<{ attemptId: 
   } = useExamStore();
 
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
   // Initialize session
   useEffect(() => {
     async function fetchExamSession() {
       try {
+        setError(null);
         const sessionData = await ExamApi.startAttempt(attemptId || 1);
-        if (sessionData) {
+        if (sessionData && sessionData.questions && sessionData.questions.length > 0) {
           initSession({
             exam: sessionData.exam,
             attempt: sessionData.attempt,
             questions: sessionData.questions,
           });
+        } else {
+          setError('Không tìm thấy dữ liệu đề thi này.');
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error(err);
+        setError('Đề thi này đã được cập nhật phiên bản mới hoặc không tồn tại. Vui lòng quay lại danh sách để chọn đề.');
       } finally {
         setLoading(false);
       }
@@ -75,12 +80,37 @@ export default function ExamRoomPage({ params }: { params: Promise<{ attemptId: 
     return () => clearInterval(interval);
   }, [loading, attempt, decrementTimer]);
 
-  if (loading || questions.length === 0) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
           <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-sm font-semibold text-slate-300">Đang chuẩn bị phòng thi...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || questions.length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="glass-card max-w-md w-full p-8 rounded-3xl border border-white/10 text-center space-y-6">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
+            <AlertCircle className="w-8 h-8" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-lg font-bold text-white">Thông Báo Đề Thi</h2>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              {error || 'Đề thi chưa có câu hỏi hoặc đang được làm mới.'}
+            </p>
+          </div>
+          <Link
+            href="/exams/THPT_MATH"
+            className="inline-flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 transition-all"
+          >
+            <span>Quay Lại Kho Đề Thi Toán</span>
+            <ChevronRight className="w-4 h-4" />
+          </Link>
         </div>
       </div>
     );

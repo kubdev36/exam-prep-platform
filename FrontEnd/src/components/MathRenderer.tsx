@@ -27,13 +27,20 @@ export const MathRenderer: React.FC<MathRendererProps> = ({ content, className =
       .map((part) => {
         if (!part) return '';
 
+        const cleanMath = (raw: string) =>
+          raw
+            .replace(/[\u00a0\u1680\u180e\u2000-\u200a\u202f\u205f\u3000\ufeff]/g, ' ')
+            .replace(/&nbsp;/g, ' ')
+            .trim();
+
         // Display mode math: $$...$$ or \[...\]
         if (part.startsWith('$$') && part.endsWith('$$')) {
-          const math = part.slice(2, -2).trim();
+          const math = cleanMath(part.slice(2, -2));
           try {
             return katex.renderToString(math, {
               displayMode: true,
               throwOnError: false,
+              strict: false,
             });
           } catch (e) {
             return `<span class="text-amber-400 font-mono text-sm">${part}</span>`;
@@ -41,11 +48,12 @@ export const MathRenderer: React.FC<MathRendererProps> = ({ content, className =
         }
 
         if (part.startsWith('\\[') && part.endsWith('\\]')) {
-          const math = part.slice(2, -2).trim();
+          const math = cleanMath(part.slice(2, -2));
           try {
             return katex.renderToString(math, {
               displayMode: true,
               throwOnError: false,
+              strict: false,
             });
           } catch (e) {
             return `<span class="text-amber-400 font-mono text-sm">${part}</span>`;
@@ -54,11 +62,12 @@ export const MathRenderer: React.FC<MathRendererProps> = ({ content, className =
 
         // Inline mode math: \(...\) or $...$
         if (part.startsWith('\\(') && part.endsWith('\\)')) {
-          const math = part.slice(2, -2).trim();
+          const math = cleanMath(part.slice(2, -2));
           try {
             return katex.renderToString(math, {
               displayMode: false,
               throwOnError: false,
+              strict: false,
             });
           } catch (e) {
             return `<span class="text-amber-400 font-mono text-sm">${part}</span>`;
@@ -66,11 +75,12 @@ export const MathRenderer: React.FC<MathRendererProps> = ({ content, className =
         }
 
         if (part.startsWith('$') && part.endsWith('$')) {
-          const math = part.slice(1, -1).trim();
+          const math = cleanMath(part.slice(1, -1));
           try {
             return katex.renderToString(math, {
               displayMode: false,
               throwOnError: false,
+              strict: false,
             });
           } catch (e) {
             return `<span class="text-amber-400 font-mono text-sm">${part}</span>`;
