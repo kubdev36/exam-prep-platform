@@ -127,40 +127,33 @@ export default function ExamPortalPage({ params }: { params: Promise<{ code: str
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
             {isTHPT && (
               <>
-                {/* Môn Toán */}
+                {/* Môn Toán (46 Đề thi từ Loigiaihay) */}
                 <div className="glass-card glass-card-hover p-6 rounded-2xl border border-blue-500/30">
                   <div className="flex items-center justify-between mb-4">
                     <span className="text-xl font-bold text-white">Toán Học</span>
                     <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-400">
-                      GDPT Mới
+                      46 Đề Thi Mới
                     </span>
                   </div>
                   <p className="text-xs text-slate-400 mb-6">
-                    Bao gồm 3 phần: Trắc nghiệm 4 chọn 1, Trắc nghiệm Đúng/Sai 4 ý và Trả lời ngắn.
+                    Bao gồm các đề thi thử các sở, trường chuyên và bộ đề chuẩn ma trận tốt nghiệp THPT 2026/2025.
                   </p>
                   <div className="space-y-2 text-xs text-slate-300 mb-6">
                     <div className="flex justify-between">
-                      <span>Khảo sát hàm số & đạo hàm</span>
-                      <span className="text-blue-400 font-bold">85% nắm vững</span>
+                      <span>Đại số, Hình học & Thống kê</span>
+                      <span className="text-blue-400 font-bold">46 đề chuẩn hóa</span>
                     </div>
                     <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-blue-500 h-full rounded-full" style={{ width: '85%' }} />
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Tích phân & Ứng dụng</span>
-                      <span className="text-emerald-400 font-bold">70% nắm vững</span>
-                    </div>
-                    <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-emerald-500 h-full rounded-full" style={{ width: '70%' }} />
+                      <div className="bg-blue-500 h-full rounded-full" style={{ width: '95%' }} />
                     </div>
                   </div>
-                  <Link
-                    href="/exam-room/1"
-                    className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white flex items-center justify-center gap-2"
+                  <button
+                    onClick={() => setActiveTab('MOCKS')}
+                    className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white flex items-center justify-center gap-2 transition-all"
                   >
                     <Play className="w-3.5 h-3.5 fill-white" />
-                    Luyện Đề Môn Toán
-                  </Link>
+                    Xem 46 Đề Môn Toán
+                  </button>
                 </div>
 
                 {/* Môn Vật lý */}
