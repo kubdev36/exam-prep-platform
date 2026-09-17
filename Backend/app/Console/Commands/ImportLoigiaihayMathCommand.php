@@ -8,6 +8,7 @@ use App\Models\ExamType;
 use App\Models\Question;
 use App\Models\QuestionOption;
 use App\Models\Subject;
+use App\Services\CloudinaryService;
 use App\Services\DocumentParser\ExamStructureParser;
 use GuzzleHttp\Client;
 use Illuminate\Console\Command;
@@ -73,6 +74,8 @@ class ImportLoigiaihayMathCommand extends Command
         $importedCount = 0;
         $totalQuestionsImported = 0;
 
+        $cloudinary = new CloudinaryService();
+
         foreach ($examLinks as $link => $rawTitle) {
             $this->line("--------------------------------------------------");
             $this->info("Fetching exam: $rawTitle");
@@ -97,12 +100,84 @@ class ImportLoigiaihayMathCommand extends Command
                 continue;
             }
 
-            // Extract text from HTML while preserving math & line breaks
-            $cleanText = html_entity_decode(strip_tags(str_replace(['<br>', '<br/>', '<br />', '</p>', '</div>', '</li>', '</tr>'], "\n", $examHtml)));
-            $cleanText = preg_replace("/\n{3,}/", "\n\n", $cleanText);
+            // Check if page contains individual bai-tap links with detailed solutions & images
+            preg_match_all('/<a[^>]+href=["\'](\/bai-tap-\d+\.html)["\'][^>]*>(.*?)<\/a>/si', $examHtml, $btMatches, PREG_SET_ORDER);
+            $uniqueBtLinks = [];
+            foreach ($btMatches as $bm) {
+                $uLink = 'https://loigiaihay.com' . $bm[1];
+                if (!isset($uniqueBtLinks[$uLink])) {
+                    $uniqueBtLinks[$uLink] = trim(strip_tags($bm[2]));
+                }
+            }
 
-            $parseResult = $parser->parse($cleanText);
-            $questions = $parseResult['questions'] ?? [];
+            $questions = [];
+
+            if (count($uniqueBtLinks) >= 10) {
+                // High fidelity: fetch each question's full content, geometry drawings & step-by-step solution
+                $this->info("Parsing " . count($uniqueBtLinks) . " sub-questions with full diagrams & solutions...");
+                $qIdx = 1;
+                foreach ($uniqueBtLinks as $btUrl => $btLabel) {
+                    try {
+                        $btHtml = (string)$client->get($btUrl)->getBody();
+                        preg_match('/<div[^>]+class="[^"]*question-content[^"]*"[^>]*>(.*?)<\/div>\s*<div[^>]+class="[^"]*loigiai/si', $btHtml, $qBox);
+                        preg_match('/<div[^>]+class="[^"]*loigiai[^"]*"[^>]*>(.*?)<\/div>\s*<div[^>]+class="[^"]*question-report/si', $btHtml, $solBox);
+
+                        $rawQ = $qBox[1] ?? '';
+                        $rawSol = $solBox[1] ?? '';
+
+                        $processedQ = $this->processHtmlWithCloudinary($rawQ, $cloudinary, $client);
+                        $processedSol = $this->processHtmlWithCloudinary($rawSol, $cloudinary, $client);
+
+                        if (!empty(trim($processedQ))) {
+                            // Detect options if multiple choice
+                            $optMatches = [];
+                            preg_match_all('/([A-D])[\.\:\)]\s*([^\n]+)/u', $processedQ, $optMatches, PREG_SET_ORDER);
+                            $options = [];
+                            foreach ($optMatches as $om) {
+                                $options[] = [
+                                    'sub_key' => $om[1],
+                                    'content' => trim($om[2]),
+                                    'is_correct' => false,
+                                    'order_index' => ord($om[1]) - ord('A') + 1,
+                                ];
+                            }
+
+                            // Detect answer from solution
+                            if (preg_match('/(?:Đáp án|chọn)\s*:?\s*([A-D])/ui', $processedSol, $ansM)) {
+                                $correctKey = strtoupper($ansM[1]);
+                                foreach ($options as &$opt) {
+                                    if ($opt['sub_key'] === $correctKey) {
+                                        $opt['is_correct'] = true;
+                                    }
+                                }
+                            }
+
+                            $qType = 'SINGLE_CHOICE';
+                            if (str_contains($btLabel, 'trả lời ngắn') || empty($options)) {
+                                $qType = 'SHORT_ANSWER';
+                            }
+
+                            $questions[] = [
+                                'question_type' => $qType,
+                                'difficulty_level' => 3,
+                                'content' => $processedQ,
+                                'explanation' => $processedSol,
+                                'point_value' => 0.25,
+                                'options' => $options,
+                            ];
+                        }
+                    } catch (\Exception $e) {
+                        // ignore single sub question failure
+                    }
+                }
+            }
+
+            if (empty($questions)) {
+                // Fallback: Parse whole exam text with Cloudinary image preservation
+                $cleanText = $this->processHtmlWithCloudinary($examHtml, $cloudinary, $client);
+                $parseResult = $parser->parse($cleanText);
+                $questions = $parseResult['questions'] ?? [];
+            }
 
             if (empty($questions)) {
                 $this->warn("No questions parsed from $link");
@@ -190,5 +265,38 @@ class ImportLoigiaihayMathCommand extends Command
         $this->info("Import completed: $importedCount Math exams, $totalQuestionsImported questions imported into PostgreSQL database!");
 
         return 0;
+    }
+
+    protected function processHtmlWithCloudinary(string $html, CloudinaryService $cloudinary, Client $client): string
+    {
+        $processed = preg_replace_callback('/<img[^>]+src=["\']([^"\']+)["\'][^>]*>/i', function ($m) use ($cloudinary) {
+            $src = $m[1];
+            if (
+                str_contains($src, 'themes') ||
+                str_contains($src, 'icon') ||
+                str_contains($src, 'speaker') ||
+                str_contains($src, 'facebook') ||
+                str_contains($src, 'youtube') ||
+                str_contains($src, 'banner') ||
+                str_contains($src, 'giai-boi')
+            ) {
+                return '';
+            }
+            $fullSrc = str_starts_with($src, 'http') ? $src : 'https://loigiaihay.com' . (str_starts_with($src, '/') ? '' : '/') . $src;
+            try {
+                $upload = $cloudinary->upload($fullSrc, 'luyenthi/math_questions');
+                if ($upload && !empty($upload['url'])) {
+                    return "\n\n![Hình vẽ minh họa](" . $upload['url'] . ")\n\n";
+                }
+            } catch (\Exception $e) {
+                // fallback to original source URL
+            }
+            return "\n\n![Hình vẽ minh họa](" . $fullSrc . ")\n\n";
+        }, $html);
+
+        $clean = str_replace(['<br>', '<br/>', '<br />', '</p>', '</div>', '</li>', '</tr>', '</h1>', '</h2>', '</h3>'], "\n", $processed);
+        $clean = strip_tags($clean);
+        $clean = html_entity_decode($clean, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return preg_replace("/\n{3,}/", "\n\n", trim($clean));
     }
 }
