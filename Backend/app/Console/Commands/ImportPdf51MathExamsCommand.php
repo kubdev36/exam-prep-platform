@@ -84,11 +84,20 @@ class ImportPdf51MathExamsCommand extends Command
             $this->line("--------------------------------------------------");
             $this->info("Extracting Đề số $i (PDF Pages $startPdf to $endPdf)...");
 
-            // Extract & decode text
+            // Extract & decode text with structural placeholders
             $examText = "";
             for ($p = $startPdf - 1; $p < $endPdf; $p++) {
                 if (isset($pages[$p])) {
-                    $examText .= "\n" . $this->decodeVnTex($pages[$p]->getText());
+                    $rawPText = $pages[$p]->getText();
+                    // Tag structural markers before decoding font
+                    $rawPText = preg_replace('/(?:cC¥u|C¥u|Câu|c¥u)\s*(\d+)[\.\:\)]/u', "\n###QUESTION_HEADER### $1. ", $rawPText);
+                    $rawPText = preg_replace('/(?:ÊLíi\s*gi£i|Líi\s*gi£i|Lời\s*giải)[\.\:]?/u', "\n###SOLUTION_HEADER###\n", $rawPText);
+                    $rawPText = preg_replace('/(?:Chån\s*¡p\s*¡n|Chọn\s*đáp\s*án)\s*([A-D])/ui', "\n###ANSWER_KEY### $1\n", $rawPText);
+                    // Remove page header / footer noise
+                    $rawPText = preg_replace('/(?:Th\.?S\s*Nguy¹n\s*Ho ng\s*Vi»t|Gv\s*Ths|VI›T\s*STAR|TRUNG\s*T…M)[^\n]*/ui', '', $rawPText);
+                    $rawPText = preg_replace('/\d+pTh\.?S[^\n]*/ui', '', $rawPText);
+
+                    $examText .= "\n" . $this->decodeVnTex($rawPText);
                 }
             }
 
@@ -97,15 +106,15 @@ class ImportPdf51MathExamsCommand extends Command
             $year = 2024;
             $type = 'NATIONAL_OFFICIAL';
 
-            if (preg_match('/—\s*MINH\s*HO[„AÁ]\s*(?:TN\s*THPT)?\s*(\d{4})/ui', $examText, $tM)) {
+            if (preg_match('/MINH\s*HO[„AÁ]\s*(?:TN\s*THPT)?\s*(\d{4})/ui', $examText, $tM)) {
                 $year = (int)$tM[1];
                 $title = "Đề tham khảo TN THPT môn Toán năm $year - Đề số $i";
                 $type = 'PRACTICE_CUSTOM';
-            } elseif (preg_match('/—\s*TH[ÛỬ]\s*NGHI[›Ệ]M\s*(?:TN\s*THPT)?\s*(\d{4})/ui', $examText, $tM)) {
+            } elseif (preg_match('/TH[ÛỬ]\s*NGHI[›Ệ]M\s*(?:TN\s*THPT)?\s*(\d{4})/ui', $examText, $tM)) {
                 $year = (int)$tM[1];
                 $title = "Đề thử nghiệm TN THPT môn Toán năm $year - Đề số $i";
                 $type = 'MOCK_TEST';
-            } elseif (preg_match('/—\s*CH[IÍ]NH\s*TH[UỨ]C\s*(?:TN\s*THPT)?\s*(\d{4})/ui', $examText, $tM)) {
+            } elseif (preg_match('/CH[IÍ]NH\s*TH[UỨ]C\s*(?:TN\s*THPT)?\s*(\d{4})/ui', $examText, $tM)) {
                 $year = (int)$tM[1];
                 $title = "Đề thi chính thức TN THPT môn Toán năm $year - Đề số $i";
                 $type = 'NATIONAL_OFFICIAL';
@@ -114,8 +123,8 @@ class ImportPdf51MathExamsCommand extends Command
                 $title = "Đề thi TN THPT môn Toán năm $year - Đề số $i";
             }
 
-            // Extract question blocks
-            preg_match_all('/(?:Câu|Cữtu)\s+(\d+)[\.\:\)](.*?)(?=(?:(?:Câu|Cữtu)\s+\d+[\.\:\)]|\z))/usi', $examText, $qMatches, PREG_SET_ORDER);
+            // Extract question blocks by placeholder
+            preg_match_all('/###QUESTION_HEADER###\s*(\d+)\.\s*(.*?)(?=(?:###QUESTION_HEADER###|\z))/usi', $examText, $qMatches, PREG_SET_ORDER);
 
             if (empty($qMatches)) {
                 $this->warn("No questions parsed for Đề số $i");
@@ -159,32 +168,29 @@ class ImportPdf51MathExamsCommand extends Command
                     $content = $rawBlock;
                     $explanation = "";
 
-                    if (preg_match('/(?:Lời giải:|Líi gi£i:?)(.*)/usi', $rawBlock, $solM)) {
-                        $explanation = trim($solM[1]);
-                        $content = trim(substr($rawBlock, 0, strpos($rawBlock, $solM[0])));
+                    if (str_contains($rawBlock, '###SOLUTION_HEADER###')) {
+                        $parts = explode('###SOLUTION_HEADER###', $rawBlock, 2);
+                        $content = trim($parts[0]);
+                        $explanation = trim($parts[1]);
                     }
 
                     // Extract correct answer
                     $correctKey = null;
-                    if (preg_match('/(?:Chọn\s+đáp\s+án|Chån\s*¡p\s*¡n|Đáp\s*án\s*:?)\s*([A-D])/ui', $explanation ?: $rawBlock, $ansM)) {
+                    if (preg_match('/###ANSWER_KEY###\s*([A-D])/ui', $explanation ?: $rawBlock, $ansM)) {
                         $correctKey = strtoupper($ansM[1]);
                     }
 
+                    // Clean tags from explanation
+                    $explanation = preg_replace('/###ANSWER_KEY###\s*[A-D]/ui', '', $explanation);
+
                     // Extract options A, B, C, D
                     $options = [];
-                    if (preg_match_all('/(?:^|\n)\s*([A-D])\s*[\.\:\)]?\s*(.*?)(?=(?:\n\s*[A-D]\s*[\.\:\)]?|\n\s*Lời giải|\z))/usi', $content, $optMatches, PREG_SET_ORDER)) {
-                        foreach ($optMatches as $om) {
-                            $key = strtoupper($om[1]);
-                            $optText = trim($om[2]);
-                            $options[] = [
-                                'sub_key' => $key,
-                                'content' => $optText,
-                                'is_correct' => ($key === $correctKey),
-                                'order_index' => ord($key) - ord('A') + 1,
-                            ];
-                        }
-                        // Remove option lines from content
-                        $content = preg_replace('/(?:^|\n)\s*[A-D]\s*[\.\:\)]?\s*.*$/usi', '', $content);
+                    if (preg_match('/(?:\n|\A)\s*A[\.\:\s]\s*(.*?)(?:\n\s*B[\.\:\s]\s*(.*?))(?:\n\s*C[\.\:\s]\s*(.*?))(?:\n\s*D[\.\:\s]\s*(.*?))\s*(?:xy|\z)/usi', $content, $optM)) {
+                        $content = substr($content, 0, strpos($content, $optM[0]));
+                        $options[] = ['sub_key' => 'A', 'content' => trim($optM[1]), 'is_correct' => ('A' === $correctKey), 'order_index' => 1];
+                        $options[] = ['sub_key' => 'B', 'content' => trim($optM[2]), 'is_correct' => ('B' === $correctKey), 'order_index' => 2];
+                        $options[] = ['sub_key' => 'C', 'content' => trim($optM[3]), 'is_correct' => ('C' === $correctKey), 'order_index' => 3];
+                        $options[] = ['sub_key' => 'D', 'content' => trim($optM[4]), 'is_correct' => ('D' === $correctKey), 'order_index' => 4];
                     }
 
                     $cleanContent = trim(preg_replace("/\n{3,}/", "\n\n", $content));
@@ -195,7 +201,7 @@ class ImportPdf51MathExamsCommand extends Command
                         'subject_id' => $mathSubject->id,
                         'question_type' => 'SINGLE_CHOICE',
                         'difficulty_level' => ($qNum <= 25) ? 1 : (($qNum <= 40) ? 2 : 3),
-                        'content' => $cleanContent ?: "Câu hỏi số $qNum",
+                        'content' => $cleanContent ?: "Câu $qNum",
                         'explanation' => $cleanExplanation,
                         'points' => 0.2,
                         'is_active' => true,
@@ -212,7 +218,7 @@ class ImportPdf51MathExamsCommand extends Command
                             ]);
                         }
                     } else {
-                        // Fallback 4 options if not split cleanly
+                        // Fallback 4 options
                         foreach (['A', 'B', 'C', 'D'] as $idx => $k) {
                             QuestionOption::create([
                                 'question_id' => $question->id,
@@ -248,13 +254,6 @@ class ImportPdf51MathExamsCommand extends Command
 
     protected function decodeVnTex(string $text): string
     {
-        // 1. Direct string replace of raw PDF tokens
-        $text = str_replace(
-            ['cC¥u', 'C¥u', 'c¥u', 'ÊLíi gi£i', 'Líi gi£i', 'Chån  ¡p ¡n', 'Chån ¡p ¡n'],
-            ['Câu ', 'Câu ', 'câu ', "\nLời giải:\n", "\nLời giải:\n", "Chọn đáp án ", "Chọn đáp án "],
-            $text
-        );
-
         // Specific multi-char or word pattern replacements
         $wordMap = [
             '  · sè' => 'Đề số',
@@ -273,6 +272,10 @@ class ImportPdf51MathExamsCommand extends Command
             '  ç thà' => 'đồ thị',
             'ç thà' => 'đồ thị',
             'h m sè' => 'hàm số',
+            'h m' => 'hàm',
+            'sè' => 'số',
+            ' cõa ' => ' của ',
+            ' bèn ' => ' bốn ',
             'cüc trà' => 'cực trị',
             'cüc  ¤i' => 'cực đại',
             'cüc tiºu' => 'cực tiểu',
@@ -295,12 +298,11 @@ class ImportPdf51MathExamsCommand extends Command
             'h¼nh nân' => 'hình nón',
             'h¼nh trö' => 'hình trụ',
             'mët' => 'một',
-            'hai' => 'hai',
-            'ba' => 'ba',
-            'bèn' => 'bốn',
             'ph÷ìng ¡n' => 'phương án',
             'd÷îi  ¥y' => 'dưới đây',
             'd÷îi ¥y' => 'dưới đây',
+            'd÷îi' => 'dưới',
+            '¥y' => 'đây',
             'Häi' => 'Hỏi',
             'häi' => 'hỏi',
             'T¼m' => 'Tìm',
@@ -322,6 +324,8 @@ class ImportPdf51MathExamsCommand extends Command
             '  ÷íng cong' => 'đường cong',
             '÷íng cong' => 'đường cong',
             'h¼nh b¶n' => 'hình bên',
+            'h¼nh' => 'hình',
+            'b¶n' => 'bên',
             'li»t k¶' => 'liệt kê',
             'Kh¯ng  ành' => 'Khẳng định',
             'kh¯ng  ành' => 'khẳng định',
@@ -351,7 +355,11 @@ class ImportPdf51MathExamsCommand extends Command
             'lo¤i' => 'loại',
             'Theo  ành ngh¾a' => 'Theo định nghĩa',
             '  ành ngh¾a' => 'định nghĩa',
+            '  ¢ cho' => 'đã cho',
             'MÖC LÖC' => 'MỤC LỤC',
+            'l ' => 'là',
+            'â' => 'đó',
+            'n o' => 'nào',
         ];
 
         $text = str_replace(array_keys($wordMap), array_values($wordMap), $text);
