@@ -12,36 +12,73 @@ export const MathRenderer: React.FC<MathRendererProps> = ({ content, className =
   const renderedHtml = useMemo(() => {
     if (!content) return '';
 
-    // Regex to detect $$block$$ and $inline$
-    // Split by $$...$$ first, then by $...$
-    const parts = content.split(/(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/g);
+    // Convert markdown images ![alt](url) to HTML <img>
+    let text = content.replace(/!\[(.*?)\]\((.*?)\)/g, '<img src="$2" alt="$1" class="my-3 rounded-xl max-h-96 max-w-full mx-auto border border-white/10 shadow-lg" />');
+
+    // Delimiters regex:
+    // 1. $$ ... $$ (display)
+    // 2. \[ ... \] (display)
+    // 3. \( ... \) (inline)
+    // 4. $ ... $ (inline)
+    const regex = /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$[^$\n]+?\$)/g;
+    const parts = text.split(regex);
 
     return parts
       .map((part) => {
+        if (!part) return '';
+
+        // Display mode math: $$...$$ or \[...\]
         if (part.startsWith('$$') && part.endsWith('$$')) {
-          const math = part.slice(2, -2);
+          const math = part.slice(2, -2).trim();
           try {
             return katex.renderToString(math, {
               displayMode: true,
               throwOnError: false,
             });
           } catch (e) {
-            return `<span class="text-red-400">${part}</span>`;
+            return `<span class="text-amber-400 font-mono text-sm">${part}</span>`;
           }
-        } else if (part.startsWith('$') && part.endsWith('$')) {
-          const math = part.slice(1, -1);
+        }
+
+        if (part.startsWith('\\[') && part.endsWith('\\]')) {
+          const math = part.slice(2, -2).trim();
+          try {
+            return katex.renderToString(math, {
+              displayMode: true,
+              throwOnError: false,
+            });
+          } catch (e) {
+            return `<span class="text-amber-400 font-mono text-sm">${part}</span>`;
+          }
+        }
+
+        // Inline mode math: \(...\) or $...$
+        if (part.startsWith('\\(') && part.endsWith('\\)')) {
+          const math = part.slice(2, -2).trim();
           try {
             return katex.renderToString(math, {
               displayMode: false,
               throwOnError: false,
             });
           } catch (e) {
-            return `<span class="text-red-400">${part}</span>`;
+            return `<span class="text-amber-400 font-mono text-sm">${part}</span>`;
           }
-        } else {
-          // Replace newlines with <br /> for paragraph spacing
-          return part.replace(/\n/g, '<br />');
         }
+
+        if (part.startsWith('$') && part.endsWith('$')) {
+          const math = part.slice(1, -1).trim();
+          try {
+            return katex.renderToString(math, {
+              displayMode: false,
+              throwOnError: false,
+            });
+          } catch (e) {
+            return `<span class="text-amber-400 font-mono text-sm">${part}</span>`;
+          }
+        }
+
+        // Standard text: preserve line breaks
+        return part.replace(/\n/g, '<br />');
       })
       .join('');
   }, [content]);
