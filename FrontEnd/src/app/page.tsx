@@ -19,7 +19,9 @@ import {
   Calculator,
   Compass,
   FileCheck,
-  Bookmark
+  Bookmark,
+  FileUp,
+  Wand2
 } from 'lucide-react';
 import { Exam, ExamType } from '@/types';
 import { ExamApi, MOCK_EXAM_TYPES } from '@/lib/api';
@@ -158,6 +160,40 @@ export default function HomePage() {
             <div>
               <div className="text-xs font-bold text-white group-hover:text-rose-400 transition-colors">Sổ Câu Sai</div>
               <div className="text-[11px] text-slate-400">12 câu cần ôn</div>
+            </div>
+          </Link>
+        </div>
+
+        {/* Feature Banner: Smart Exam Importer */}
+        <div className="max-w-4xl mx-auto mb-16">
+          <Link
+            href="/exams/import"
+            className="glass-card p-6 sm:p-7 rounded-3xl border border-indigo-500/30 hover:border-indigo-500/70 bg-gradient-to-r from-indigo-950/60 via-purple-950/40 to-slate-900/80 transition-all duration-300 flex flex-col sm:flex-row items-center justify-between gap-6 group shadow-xl hover:shadow-indigo-500/10 text-left"
+          >
+            <div className="flex items-start gap-4">
+              <div className="p-3.5 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 group-hover:scale-105 group-hover:bg-indigo-500/30 transition-all shrink-0">
+                <FileUp className="w-7 h-7" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1">
+                    <Wand2 className="w-3 h-3" /> TÍNH NĂNG MỚI
+                  </span>
+                  <span className="text-xs font-semibold text-emerald-400">Hỗ trợ Word (.docx) & PDF</span>
+                </div>
+                <h3 className="text-lg sm:text-xl font-bold text-white group-hover:text-indigo-200 transition-colors">
+                  Tự động chuyển file Word/PDF thành Đề thi trực tuyến
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 max-w-xl">
+                  Tải file đề thi hoặc dán nội dung văn bản. Hệ thống tự nhận diện câu hỏi trắc nghiệm, đúng/sai, điền khuyết, công thức KaTeX và bảng đáp án chỉ trong vài giây!
+                </p>
+              </div>
+            </div>
+            <div className="shrink-0 w-full sm:w-auto">
+              <span className="w-full sm:w-auto px-5 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-xs font-bold text-white shadow-lg shadow-indigo-500/25 transition-all flex items-center justify-center gap-2">
+                <span>Trải Nghiệm Upload Ngay</span>
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </span>
             </div>
           </Link>
         </div>

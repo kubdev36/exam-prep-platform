@@ -20,6 +20,8 @@ Route::get('/subjects/{subjectId}/topics', [ExamCatalogController::class, 'getTo
 
 Route::get('/exams', [ExamController::class, 'index']);
 Route::get('/exams/{id}', [ExamController::class, 'show']);
+Route::post('/exams/parse-document', [\App\Http\Controllers\Api\ExamImportController::class, 'parseDocument']);
+Route::post('/exams/save-imported-exam', [\App\Http\Controllers\Api\ExamImportController::class, 'saveImportedExam']);
 
 // Protected routes (Sanctum)
 Route::middleware('auth:sanctum')->group(function () {

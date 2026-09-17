@@ -145,6 +145,15 @@ export const Navbar: React.FC = () => {
             Sổ Câu Sai
           </Link>
           <Link
+            href="/exams/import"
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
+              pathname === '/exams/import' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' : 'text-indigo-300 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Upload Đề (Word/PDF)</span>
+          </Link>
+          <Link
             href="/dashboard"
             className={`px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
               pathname === '/dashboard' ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-slate-300 hover:text-white hover:bg-white/5'
