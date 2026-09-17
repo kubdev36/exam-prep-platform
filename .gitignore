@@ -1,0 +1,73 @@
+# Environment files
+.env
+.env.*
+!.env.example
+.env.backup
+.env.production
+
+# Dependencies
+node_modules/
+vendor/
+*/node_modules/
+*/vendor/
+.pnp
+.pnp.*
+
+# Build & Output
+.next/
+*/.next/
+out/
+build/
+dist/
+public/build/
+public/hot
+public/storage
+*.tsbuildinfo
+next-env.d.ts
+
+# Storage & Cache
+storage/*.key
+storage/pail
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+.phpunit.cache
+.phpunit.result.cache
+.turbo/
+
+# Logs & Debugging
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Database & Docker Volumes
+*.sqlite
+*.sqlite-journal
+postgres_data/
+redis_data/
+
+# IDE & Editor files
+.vscode/
+.idea/
+.cursor/
+.zed/
+.codex/
+*.sublime-project
+*.sublime-workspace
+_ide_helper.php
+.phpactor.json
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+
+# Miscellaneous
+auth.json
+Homestead.json
+Homestead.yaml
+.vercel
+app-temp/
