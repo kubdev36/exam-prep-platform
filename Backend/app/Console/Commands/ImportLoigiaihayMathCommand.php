@@ -2,11 +2,14 @@
 
 namespace App\Console\Commands;
 
+use App\Models\AttemptQuestion;
 use App\Models\Exam;
+use App\Models\ExamAttempt;
 use App\Models\ExamQuestion;
 use App\Models\ExamType;
 use App\Models\Question;
 use App\Models\QuestionOption;
+use App\Models\StudentAnswer;
 use App\Models\Subject;
 use App\Services\CloudinaryService;
 use App\Services\DocumentParser\ExamStructureParser;
@@ -17,12 +20,12 @@ use Illuminate\Support\Str;
 
 class ImportLoigiaihayMathCommand extends Command
 {
-    protected $signature = 'import:loigiaihay-math';
-    protected $description = 'Crawl and import all THPT Math exams from loigiaihay.com category';
+    protected $signature = 'import:loigiaihay-math {--fresh : Delete existing Math exams before importing}';
+    protected $description = 'Crawl and import all THPT Math exams with Cloudinary illustration diagrams from loigiaihay.com';
 
     public function handle(ExamStructureParser $parser)
     {
-        $this->info('Starting crawler for loigiaihay THPT Math exams...');
+        $this->info('Starting full high-precision crawler for THPT Math exams with Cloudinary diagrams...');
 
         $client = new Client([
             'headers' => [
@@ -30,10 +33,10 @@ class ImportLoigiaihayMathCommand extends Command
                 'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             ],
             'timeout' => 30,
+            'verify' => false,
         ]);
 
-        $categoryUrl = 'https://loigiaihay.com/de-thi-tot-nghiep-thpt-mon-toan-c2201.html';
-        $this->line("Fetching category: $categoryUrl");
+        $cloudinary = new CloudinaryService();
 
         $thptType = ExamType::where('code', 'THPT')->first();
         $mathSubject = Subject::where('code', 'THPT_MATH')->first();
@@ -43,43 +46,63 @@ class ImportLoigiaihayMathCommand extends Command
             return 1;
         }
 
-        try {
-            $res = $client->get($categoryUrl);
-            $html = (string)$res->getBody();
-        } catch (\Exception $e) {
-            $this->error('Failed to fetch category page: ' . $e->getMessage());
-            return 1;
+        if ($this->option('fresh')) {
+            $this->warn('Fresh option enabled: Purging existing Math exams and questions...');
+            $existingMathExams = Exam::where('subject_id', $mathSubject->id)->get();
+            foreach ($existingMathExams as $oldExam) {
+                // Delete attempts
+                $attempts = ExamAttempt::where('exam_id', $oldExam->id)->get();
+                foreach ($attempts as $att) {
+                    AttemptQuestion::where('attempt_id', $att->id)->delete();
+                    StudentAnswer::where('attempt_id', $att->id)->delete();
+                    $att->delete();
+                }
+                // Delete questions
+                $qIds = ExamQuestion::where('exam_id', $oldExam->id)->pluck('question_id')->all();
+                ExamQuestion::where('exam_id', $oldExam->id)->delete();
+                QuestionOption::whereIn('question_id', $qIds)->delete();
+                Question::whereIn('id', $qIds)->delete();
+                $oldExam->delete();
+            }
+            $this->info('Purged old Math exams successfully.');
         }
 
-        // Find all article links on the page
-        preg_match_all('/<a[^>]+href=["\']([^"\']+\.html)["\'][^>]*>(.*?)<\/a>/si', $html, $matches, PREG_SET_ORDER);
+        // Collect all exam links across pages 1 to 4
         $examLinks = [];
+        for ($page = 1; $page <= 4; $page++) {
+            $url = "https://loigiaihay.com/de-thi-tot-nghiep-thpt-mon-toan-c2201.html" . ($page > 1 ? "?page=$page" : "");
+            $this->line("Scanning catalog page $page: $url");
 
-        foreach ($matches as $m) {
-            $href = $m[1];
-            $title = trim(strip_tags($m[2]));
+            try {
+                $res = $client->get($url);
+                $html = (string)$res->getBody();
+                preg_match_all('/<a[^>]+href=["\']([^"\']+\.html)["\'][^>]*>(.*?)<\/a>/si', $html, $matches, PREG_SET_ORDER);
+                foreach ($matches as $m) {
+                    $href = $m[1];
+                    $title = trim(strip_tags($m[2]));
 
-            if (preg_match('/-a\d+\.html$/', $href)) {
-                if (!str_starts_with($href, 'http')) {
-                    $href = 'https://loigiaihay.com' . (str_starts_with($href, '/') ? '' : '/') . $href;
+                    if (preg_match('/-a\d+\.html$/', $href)) {
+                        if (!str_starts_with($href, 'http')) {
+                            $href = 'https://loigiaihay.com' . (str_starts_with($href, '/') ? '' : '/') . $href;
+                        }
+                        if (!isset($examLinks[$href]) && strlen($title) > 8 && !str_contains($title, 'Quảng cáo')) {
+                            $examLinks[$href] = $title;
+                        }
+                    }
                 }
-                if (!isset($examLinks[$href]) && strlen($title) > 8) {
-                    $examLinks[$href] = $title;
-                }
+            } catch (\Exception $e) {
+                $this->warn("Failed to scan page $page: " . $e->getMessage());
             }
         }
 
-        $this->info('Found ' . count($examLinks) . ' Math exam articles to import.');
+        $this->info('Found total ' . count($examLinks) . ' Math exam articles to import.');
 
         $importedCount = 0;
         $totalQuestionsImported = 0;
 
-        $cloudinary = new CloudinaryService();
-
         foreach ($examLinks as $link => $rawTitle) {
             $this->line("--------------------------------------------------");
-            $this->info("Fetching exam: $rawTitle");
-            $this->line("URL: $link");
+            $this->info("Processing exam: $rawTitle");
 
             // Clean title
             $title = $rawTitle;
@@ -87,7 +110,7 @@ class ImportLoigiaihayMathCommand extends Command
                 $title = $tMatch[1];
             }
 
-            if (Exam::where('title', $title)->exists()) {
+            if (!$this->option('fresh') && Exam::where('title', $title)->exists()) {
                 $this->info("Exam '$title' already exists in database, skipping.");
                 continue;
             }
@@ -112,10 +135,9 @@ class ImportLoigiaihayMathCommand extends Command
 
             $questions = [];
 
-            if (count($uniqueBtLinks) >= 10) {
-                // High fidelity: fetch each question's full content, geometry drawings & step-by-step solution
-                $this->info("Parsing " . count($uniqueBtLinks) . " sub-questions with full diagrams & solutions...");
-                $qIdx = 1;
+            if (count($uniqueBtLinks) >= 8) {
+                // Fetch each question's full content, geometry drawings & step-by-step solution
+                $this->info("Fetching " . count($uniqueBtLinks) . " sub-questions with Cloudinary diagrams...");
                 foreach ($uniqueBtLinks as $btUrl => $btLabel) {
                     try {
                         $btHtml = (string)$client->get($btUrl)->getBody();
@@ -127,6 +149,13 @@ class ImportLoigiaihayMathCommand extends Command
 
                         $processedQ = $this->processHtmlWithCloudinary($rawQ, $cloudinary, $client);
                         $processedSol = $this->processHtmlWithCloudinary($rawSol, $cloudinary, $client);
+
+                        // If solution has geometry drawing / graph image, also embed it into question content so student sees it while solving!
+                        if (preg_match('/!\[.*?\]\((https:\/\/res\.cloudinary\.com[^\)]+)\)/', $processedSol, $imgMatch)) {
+                            if (!str_contains($processedQ, '![')) {
+                                $processedQ .= "\n\n" . $imgMatch[0];
+                            }
+                        }
 
                         if (!empty(trim($processedQ))) {
                             // Detect options if multiple choice
@@ -212,7 +241,7 @@ class ImportLoigiaihayMathCommand extends Command
                     'duration_minutes' => 90,
                     'total_questions' => count($questions),
                     'total_score' => 10.0,
-                    'description' => "Đề thi tốt nghiệp THPT môn Toán có đáp án và lời giải chi tiết chuẩn ma trận Bộ GD&ĐT.",
+                    'description' => "Đề thi tốt nghiệp THPT môn Toán có hình vẽ minh họa, đáp án và lời giải chi tiết chuẩn ma trận Bộ GD&ĐT.",
                     'attempts_count' => rand(110, 450),
                     'average_score' => round(rand(60, 82) / 10, 1),
                     'is_published' => true,
@@ -256,9 +285,7 @@ class ImportLoigiaihayMathCommand extends Command
             });
 
             $this->info("Successfully imported: '$title' (" . count($questions) . " questions)");
-
-            // Be respectful to source server
-            usleep(200000); // 200ms
+            usleep(100000); // 100ms
         }
 
         $this->info("==================================================");
@@ -269,6 +296,7 @@ class ImportLoigiaihayMathCommand extends Command
 
     protected function processHtmlWithCloudinary(string $html, CloudinaryService $cloudinary, Client $client): string
     {
+        // 1. Upload images to Cloudinary
         $processed = preg_replace_callback('/<img[^>]+src=["\']([^"\']+)["\'][^>]*>/i', function ($m) use ($cloudinary) {
             $src = $m[1];
             if (
@@ -289,11 +317,15 @@ class ImportLoigiaihayMathCommand extends Command
                     return "\n\n![Hình vẽ minh họa](" . $upload['url'] . ")\n\n";
                 }
             } catch (\Exception $e) {
-                // fallback to original source URL
             }
             return "\n\n![Hình vẽ minh họa](" . $fullSrc . ")\n\n";
         }, $html);
 
+        // 2. Remove script and style tags
+        $processed = preg_replace('/<script\b[^>]*>(.*?)<\/script>/is', '', $processed);
+        $processed = preg_replace('/<style\b[^>]*>(.*?)<\/style>/is', '', $processed);
+
+        // 3. Clean breaks and tags
         $clean = str_replace(['<br>', '<br/>', '<br />', '</p>', '</div>', '</li>', '</tr>', '</h1>', '</h2>', '</h3>'], "\n", $processed);
         $clean = strip_tags($clean);
         $clean = html_entity_decode($clean, ENT_QUOTES | ENT_HTML5, 'UTF-8');
